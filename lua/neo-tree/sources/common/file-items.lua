@@ -61,20 +61,7 @@ local function sort_function_is_valid(func)
   return false
 end
 
-local function deep_sort(tbl, sort_func, field_provider, direction)
-  if sort_func == nil then
-    local config = require("neo-tree").config
-    if sort_function_is_valid(config.sort_function) then
-      sort_func = config.sort_function
-    elseif config.sort_case_insensitive then
-      sort_func = sort_items_case_insensitive
-    else
-      sort_func = sort_items
-    end
-    if field_provider ~= nil then
-      sort_func = make_sort_function(field_provider, sort_func, direction)
-    end
-  end
+local function deep_sort(tbl, sort_func)
   table.sort(tbl, sort_func)
   for _, item in pairs(tbl) do
     if item.type == "directory" or item.children ~= nil then
@@ -83,11 +70,35 @@ local function deep_sort(tbl, sort_func, field_provider, direction)
   end
 end
 
-local advanced_sort = function(tbl, state)
+local get_sort_func = function(state)
   local sort_func = state.sort_function_override
   local field_provider = state.sort_field_provider
   local direction = state.sort and state.sort.direction or 1
-  deep_sort(tbl, sort_func, field_provider, direction)
+
+  if sort_func == nil then
+    local config = require("neo-tree").config
+    if sort_function_is_valid(config.sort_function) then
+      sort_func = config.sort_function
+    elseif config.sort_case_insensitive then
+      sort_func = sort_items_case_insensitive
+    elseif config[state.name].sort_function then
+      sort_func = config[state.name].sort_function
+    else
+      sort_func = sort_items
+    end
+
+    if field_provider ~= nil then
+      sort_func = make_sort_function(field_provider, sort_func --[[@as function]], direction)
+    end
+  end
+
+  return sort_func
+end
+
+local advanced_sort = function(tbl, state)
+  local sort_func = get_sort_func(state)
+
+  deep_sort(tbl, sort_func)
 end
 
 local create_item, set_parents
@@ -249,4 +260,5 @@ return {
   create_item = create_item,
   deep_sort = deep_sort,
   advanced_sort = advanced_sort,
+  sort_items = sort_items,
 }
