@@ -19,7 +19,6 @@ local config = {
   enable_opened_markers = true,   -- Enable tracking of opened files. Required for `components.name.highlight_opened_files`
   enable_refresh_on_write = true, -- Refresh the tree when a file is written. Only used if `use_libuv_file_watcher` is false.
   enable_cursor_hijack = false, -- If enabled neotree will keep the cursor on the first letter of the filename when moving in the tree.
-  enable_normal_mode_for_inputs = false, -- Enable normal mode for input dialogs.
   git_status_async = true,
   -- These options are for people with VERY large git repos
   git_status_async_options = {
@@ -369,6 +368,8 @@ local config = {
       -- ["<cr>"] = { "open", config = { expand_nested_files = true } }, -- expand nested file takes precedence
       ["<esc>"] = "cancel", -- close preview or floating neo-tree window
       ["P"] = { "toggle_preview", config = { use_float = true, use_image_nvim = false } },
+      ["<C-f>"] = { "scroll_preview", config = {direction = -10} },
+      ["<C-b>"] = { "scroll_preview", config = {direction = 10} },
       ["l"] = "focus_preview",
       ["S"] = "open_split",
       -- ["S"] = "split_with_window_picker",

@@ -166,7 +166,7 @@ current file, or if in an unsaved file, the current working directory.
       reveal_force_cwd = true,   -- change cwd without asking if needed
     })
     end,
-    {description: "Open neo-tree at current file or working directory"}
+    { desc = "Open neo-tree at current file or working directory" }
   );
 <
 
@@ -223,6 +223,12 @@ z         = close_all_nodes: Close all nodes in the tree.
 P          = toggle_preview: Toggles "preview mode", see |neo-tree-preview-mode| 
 
 l           = focus_preview: Focus the active preview window
+
+<C-f>      = scroll_preview: Scrolls preview window down (without focusing it)
+                             see |neo-tree-preview-mode| for params 
+
+<C-b>      = scroll_preview: Scrolls preview window up (without focusing it)
+                             see |neo-tree-preview-mode| for params 
 
 <esc>      = revert_preview: Ends "preview_mode" if it is enabled, and reverts
                              any preview windows to what was being shown before
@@ -404,6 +410,9 @@ an existing split by configuring the command like this:
       window = {
         mappings = {
           ["P"] = { "toggle_preview", config = { use_float = false, use_image_nvim = true } },
+          ["l"] = "focus_preview",
+          ["<C-b>"] = { "scroll_preview", config = {direction = 10} },
+          ["<C-f>"] = { "scroll_preview", config = {direction = -10} },
         }
       }
     })
@@ -1438,10 +1447,18 @@ This is fired inside a vim.schedule.
 >lua
     {
       event = "neo_tree_popup_input_ready",
-      ---@param input NuiInput
-      handler = function(input)
+      handler = function()
         -- enter input popup with normal mode by default.
         vim.cmd("stopinsert")
+      end,
+    },
+    {
+      event = "neo_tree_popup_input_ready",
+      ---@param args { bufnr: integer, winid: integer }
+      handler = function(args)
+        -- map <esc> to enter normal mode (by default closes prompt)
+        -- don't forget `opts.buffer` to specify the buffer of the popup.
+        vim.keymap.set("i", "<esc>", vim.cmd.stopinsert, { noremap = true, buffer = args.bufnr })
       end,
     }
 <

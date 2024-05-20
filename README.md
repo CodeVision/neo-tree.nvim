@@ -348,12 +348,14 @@ use {
               ["on"] = { "order_by_name", nowait = false },
               ["os"] = { "order_by_size", nowait = false },
               ["ot"] = { "order_by_type", nowait = false },
+              -- ['<key>'] = function(state) ... end,
             },
             fuzzy_finder_mappings = { -- define keymaps for filter popup window in fuzzy_finder_mode
               ["<down>"] = "move_cursor_down",
               ["<C-n>"] = "move_cursor_down",
               ["<up>"] = "move_cursor_up",
               ["<C-p>"] = "move_cursor_up",
+              -- ['<key>'] = function(state, scroll_padding) ... end,
             },
           },
 
@@ -665,7 +667,7 @@ add `"document_symbols"` to `config.sources` and open it with the command
 ### External Sources
 
 There are more sources available as extensions that are managed outside of this repository. See the
-[wiki](https://github.com/nvim-neo-tree/neo-tree.nvim/wiki/External-Sources) for me information.
+[wiki](https://github.com/nvim-neo-tree/neo-tree.nvim/wiki/External-Sources) for more information.
 
 ### Source Selector
 

@@ -136,16 +136,16 @@ M.close = function(state, focus_prior_window)
           end
           vim.api.nvim_win_set_buf(state.winid, new_buf)
         else
+          local args = {
+            position = state.current_position,
+            source = state.name,
+            winid = state.winid,
+            tabnr = tabid_to_tabnr(state.tabid), -- for compatibility
+            tabid = state.tabid,
+          }
           events.fire_event(events.NEO_TREE_WINDOW_BEFORE_CLOSE, args)
           local win_list = vim.api.nvim_tabpage_list_wins(0)
           if focus_prior_window and #win_list > 1 then
-            local args = {
-              position = state.current_position,
-              source = state.name,
-              winid = state.winid,
-              tabnr = tabid_to_tabnr(state.tabid), -- for compatibility
-              tabid = state.tabid,
-            }
             -- focus the prior used window if we are closing the currently focused window
             local current_winid = vim.api.nvim_get_current_win()
             if current_winid == state.winid then
@@ -167,7 +167,7 @@ M.close = function(state, focus_prior_window)
   if bufnr > 0 and vim.api.nvim_buf_is_valid(bufnr) then
     state.bufnr = nil
     local success, err = pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
-    if not success and err:match("E523") then
+    if not success and err and err:match("E523") then
       vim.schedule_wrap(function()
         vim.api.nvim_buf_delete(bufnr, { force = true })
       end)()
@@ -781,6 +781,7 @@ create_tree = function(state)
   state.tree = NuiTree({
     ns_id = highlights.ns_id,
     winid = state.winid,
+    bufnr = state.bufnr,
     get_node_id = function(node)
       return node.id
     end,
@@ -1040,7 +1041,9 @@ M.acquire_window = function(state)
       M.position.save(state)
     end)
     win:on({ "BufDelete" }, function()
-      win:unmount()
+      vim.schedule(function ()
+        win:unmount()
+      end)
     end, { once = true })
   end
 
@@ -1088,7 +1091,7 @@ M.window_exists = function(state)
     window_exists = false
   elseif position == "current" then
     window_exists = vim.api.nvim_win_is_valid(winid)
-      and vim.api.nvim_buf_is_valid(bufnr)
+      and vim.api.nvim_buf_is_loaded(bufnr)
       and vim.api.nvim_win_get_buf(winid) == bufnr
   else
     local isvalid = M.is_window_valid(winid)
