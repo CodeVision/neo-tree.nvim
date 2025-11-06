@@ -32,6 +32,7 @@ M.GIT_STAGED = "NeoTreeGitStaged"
 M.GIT_UNTRACKED = "NeoTreeGitUntracked"
 M.GIT_UNSTAGED = "NeoTreeGitUnstaged"
 M.HIDDEN_BY_NAME = "NeoTreeHiddenByName"
+M.IGNORED = "NeoTreeIgnored"
 M.INDENT_MARKER = "NeoTreeIndentMarker"
 M.MESSAGE = "NeoTreeMessage"
 M.MODIFIED = "NeoTreeModified"
@@ -50,7 +51,6 @@ M.END_OF_BUFFER = "NeoTreeEndOfBuffer"
 M.ROOT_NAME = "NeoTreeRootName"
 M.SYMBOLIC_LINK_TARGET = "NeoTreeSymbolicLinkTarget"
 M.TITLE_BAR = "NeoTreeTitleBar"
-M.INDENT_MARKER = "NeoTreeIndentMarker"
 M.EXPANDER = "NeoTreeExpander"
 M.WINDOWS_HIDDEN = "NeoTreeWindowsHidden"
 M.PREVIEW = "NeoTreePreview"
@@ -226,8 +226,11 @@ M.get_faded_highlight_group = function(hl_group_name, fade_percentage)
   faded_highlight_group_cache[key] = key
   return key
 end
-
+local nvim_0_10 = vim.fn.has("nvim-0.10")
 M.setup = function()
+  local added_hl_name = nvim_0_10 and "Added" or "diffAdded"
+  local changed_hl_name = nvim_0_10 and "Changed" or "diffChanged"
+  local removed_hl_name = nvim_0_10 and "Removed" or "diffRemoved"
   -- Reset this here in case of color scheme change
   faded_highlight_group_cache = {}
 
@@ -282,11 +285,27 @@ M.setup = function()
   M.create_highlight_group(M.WINDOWS_HIDDEN, { M.DOTFILE }, nil, nil)
   M.create_highlight_group(M.PREVIEW, { "Search" }, nil, nil)
 
-  M.create_highlight_group(M.GIT_ADDED, { "GitGutterAdd", "GitSignsAdd" }, nil, "5faf5f")
-  M.create_highlight_group(M.GIT_DELETED, { "GitGutterDelete", "GitSignsDelete" }, nil, "ff5900")
-  M.create_highlight_group(M.GIT_MODIFIED, { "GitGutterChange", "GitSignsChange" }, nil, "d7af5f")
+  M.create_highlight_group(
+    M.GIT_ADDED,
+    { "GitGutterAdd", "GitSignsAdd", added_hl_name },
+    nil,
+    "5faf5f"
+  )
+  M.create_highlight_group(
+    M.GIT_DELETED,
+    { "GitGutterDelete", "GitSignsDelete", removed_hl_name },
+    nil,
+    "ff5900"
+  )
+  M.create_highlight_group(
+    M.GIT_MODIFIED,
+    { "GitGutterChange", "GitSignsChange", changed_hl_name },
+    nil,
+    "d7af5f"
+  )
   local conflict = M.create_highlight_group(M.GIT_CONFLICT, {}, nil, "ff8700", "italic,bold")
   M.create_highlight_group(M.GIT_IGNORED, { M.DOTFILE }, nil, nil)
+  M.create_highlight_group(M.IGNORED, { M.DOTFILE }, nil, nil)
   M.create_highlight_group(M.GIT_RENAMED, { M.GIT_MODIFIED }, nil, nil)
   M.create_highlight_group(M.GIT_STAGED, { M.GIT_ADDED }, nil, nil)
   M.create_highlight_group(M.GIT_UNSTAGED, { M.GIT_CONFLICT }, nil, nil)
