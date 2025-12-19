@@ -9,10 +9,13 @@ local log = require("neo-tree.log")
 local help = require("neo-tree.sources.common.help")
 local Preview = require("neo-tree.sources.common.preview")
 local async = require("plenary.async")
+local git = require("neo-tree.git")
 local node_expander = require("neo-tree.sources.common.node_expander")
 
 ---@alias neotree.TreeCommandNormal fun(state: neotree.StateWithTree, ...: any)
+
 ---@alias neotree.TreeCommandVisual fun(state: neotree.StateWithTree, selected_nodes: NuiTree.Node[], ...: any)
+
 ---@alias neotree.TreeCommand neotree.TreeCommandNormal|neotree.TreeCommandVisual
 
 ---Gets the node parent folder
@@ -311,8 +314,44 @@ M.git_add_file = function(state)
     return
   end
   local path = node:get_id()
-  local cmd = { "git", "add", path }
-  vim.fn.system(cmd)
+  utils.execute_command({ "git", "add", "--", path })
+  events.fire_event(events.GIT_EVENT)
+end
+
+M.git_unstage_file = function(state)
+  local node = assert(state.tree:get_node())
+  if node.type == "message" then
+    return
+  end
+  local path = node:get_id()
+  utils.execute_command({ "git", "reset", "--", path })
+  events.fire_event(events.GIT_EVENT)
+end
+
+M.git_toggle_file_stage = function(state)
+  local node = assert(state.tree:get_node())
+  if node.type == "message" then
+    return
+  end
+  local path = node:get_id()
+  local root_dir, git_status = git.find_existing_status(path)
+  git_status = log.assert(git_status, "No git status found for this state")
+  local status = git_status[path]
+  if not status then
+    log.warn("No status found for path", path)
+    return
+  end
+
+  if type(status) == "table" then
+    status = status[1]
+  end
+
+  local worktree_status = status:sub(2, 2)
+  if worktree_status ~= "." then
+    utils.execute_command({ "git", "add", "--", path })
+  else
+    utils.execute_command({ "git", "reset", "--", path })
+  end
   events.fire_event(events.GIT_EVENT)
 end
 
@@ -370,17 +409,6 @@ M.git_push = function(state)
       popups.alert("git push", result)
     end
   end)
-end
-
-M.git_unstage_file = function(state)
-  local node = assert(state.tree:get_node())
-  if node.type == "message" then
-    return
-  end
-  local path = node:get_id()
-  local cmd = { "git", "reset", "--", path }
-  vim.fn.system(cmd)
-  events.fire_event(events.GIT_EVENT)
 end
 
 M.git_undo_last_commit = function(state)
@@ -531,17 +559,17 @@ M.order_by_git_status = function(state)
   set_sort(state, "Git Status")
 
   state.sort_field_provider = function(node)
-    local git_status_lookup = state.git_status_lookup or {}
-    local git_status = git_status_lookup[node.path]
-    if git_status then
-      return git_status
-    end
-
-    if node.filtered_by and node.filtered_by.gitignored then
-      return "!!"
-    else
+    local root_dir, git_status = git.find_existing_status(node.path)
+    if not git_status then
       return ""
     end
+
+    local status = git_status[node.path]
+    if status then
+      return status
+    end
+
+    return ""
   end
 
   require("neo-tree.sources.manager").refresh(state.name)
@@ -582,7 +610,7 @@ M.show_file_details = function(state)
   table.insert(left, "Name")
   table.insert(right, node.name)
   table.insert(left, "Path")
-  table.insert(right, node:get_id())
+  table.insert(right, node.path)
   table.insert(left, "Type")
   table.insert(right, node.type)
   if stat.size then
@@ -594,6 +622,12 @@ M.show_file_details = function(state)
     table.insert(left, "Modified")
     local modified_format = state.config.modified_format or default_filetime_format
     table.insert(right, utils.date(modified_format, stat.mtime.sec))
+  end
+
+  local root_dir, git_status = git.find_existing_status(node.path)
+  if git_status and git_status[node.path] then
+    table.insert(left, "Git code")
+    table.insert(right, git_status[node.path])
   end
 
   local lines = {}
@@ -938,7 +972,7 @@ local use_window_picker = function(state, path, cmd)
     events.fire_event(events.FILE_OPENED, path)
     return
   end
-  local picked_window_id = picker.pick_window()
+  local picked_window_id = picker.pick_window({})
   if picked_window_id then
     vim.api.nvim_set_current_win(picked_window_id)
     ---@diagnostic disable-next-line: param-type-mismatch

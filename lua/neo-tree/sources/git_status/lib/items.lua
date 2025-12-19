@@ -5,7 +5,7 @@ local git = require("neo-tree.git")
 
 local M = {}
 
----Get a table of all open buffers, along with all parent paths of those buffers.
+---Get a table of all git statuses in the current repo, along with all parent paths.
 ---The paths are the keys of the table, and all the values are 'true'.
 ---@param state neotree.StateWithTree
 M.get_git_status = function(state)
@@ -24,19 +24,30 @@ M.get_git_status = function(state)
   root.search_pattern = state.search_pattern
   context.folders[root.path] = root
 
-  for path, status in pairs(status_lookup) do
-    local success, item = pcall(file_items.create_item, context, path, "file") --[[@as neotree.FileItem.File]]
-    if success then
-      item.status = status
-      item.extra = {
-        git_status = status,
-      }
-    else
-      log.error("Error creating item for " .. path .. ": " .. item)
+  if status_lookup then
+    for path, status in pairs(status_lookup) do
+      ---@type string
+      local normalized_status
+      if type(status) == "table" then
+        normalized_status = status[1]
+      else
+        ---@cast status -table
+        normalized_status = status
+      end
+      if status ~= "!" then
+        local success, item = pcall(file_items.create_item, context, path, "file") --[[@as neotree.FileItem.File]]
+        if success then
+          item.status = normalized_status
+          item.extra = {
+            git_status = status,
+          }
+        else
+          log.error("Error creating item for " .. path .. ": " .. item)
+        end
+      end
     end
   end
 
-  state.git_status_lookup = status_lookup
   state.default_expanded_nodes = {}
   for id, _ in pairs(context.folders) do
     table.insert(state.default_expanded_nodes, id)

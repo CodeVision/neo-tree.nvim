@@ -88,8 +88,6 @@ end
 ---@field filtered_items neotree.Config.Filesystem.FilteredItems?
 ---@field skip_marker_at_level table<integer, boolean?>?
 ---@field group_empty_dirs boolean?
----git
----@field git_status_lookup neotree.git.Status?
 ---optional mapping args
 ---@field fallback string?
 ---@field config table?
@@ -158,7 +156,7 @@ end
 ---For use in tests only, completely resets the state of all sources.
 ---This closes all windows as well since they would be broken by this action.
 M._clear_state = function()
-  fs_watch.unwatch_all()
+  fs_watch.stop_watching()
   renderer.close_all_floating_windows()
   for _, data in pairs(source_data) do
     for _, state in pairs(data.state_by_tab) do
@@ -212,6 +210,29 @@ M.get_state = function(source_name, tabid, winid)
     sd.state_by_tab[tabid] = tab_state
   end
   return tab_state
+end
+
+---Modifies an existing state. Does not currently create a new one if one does not exist.
+---@param source_name string
+---@param tabid integer?
+---@param winid integer?
+---@param override table
+---@return neotree.State new_state
+M._change_state = function(source_name, tabid, winid, override)
+  assert(source_name, "get_state: source_name cannot be nil")
+  tabid = tabid or vim.api.nvim_get_current_tabpage()
+  local sd = get_source_data(source_name)
+  if type(winid) == "number" then
+    local cur_state = assert(sd.state_by_win[winid], "no state for winid " .. winid)
+    local new_state = vim.tbl_deep_extend("force", cur_state, override)
+    sd.state_by_win[winid] = new_state
+    return new_state
+  end
+
+  local cur_state = assert(sd.state_by_tab[tabid], "no state for tabid " .. tabid)
+  local new_state = vim.tbl_deep_extend("force", cur_state, override)
+  sd.state_by_tab[tabid] = new_state
+  return new_state
 end
 
 ---Returns the state for the current buffer, assuming it is a neo-tree buffer.
@@ -273,7 +294,13 @@ M.subscribe = function(source_name, event)
     sd.subscriptions = {}
   end
   if not utils.truthy(event.id) then
-    event.id = sd.name .. "." .. event.event
+    local subscriber_info = debug.getinfo(2, "Sl")
+    event.id = ("%s.%s@%s:%s"):format(
+      sd.name,
+      event.event,
+      subscriber_info.short_src,
+      subscriber_info.currentline
+    )
   end
   log.trace("subscribing to event:" .. event.id)
   sd.subscriptions[event] = true
@@ -387,13 +414,16 @@ end
 --
 ---Redraws the tree with updated git_status without scanning the filesystem again.
 ---@param source_name string
+---@param args neotree.event.args.GIT_STATUS_CHANGED
 M.git_status_changed = function(source_name, args)
   if not type(args) == "table" then
     error("git_status_changed: args must be a table")
   end
+  -- M.refresh(source_name)
   M._for_each_state(source_name, function(state)
-    if utils.is_subpath(args.git_root, state.path) then
-      state.git_status_lookup = args.git_status
+    local root_is_visible = state.tree and state.tree.nodes.by_id[args.git_root] ~= nil
+    local state_in_git_root = utils.is_subpath(args.git_root, state.path)
+    if state_in_git_root or root_is_visible then
       renderer.redraw(state)
     end
   end)
@@ -522,7 +552,6 @@ M.dispose_invalid_tabs = function()
   -- Iterate in reverse because we are removing items during loop
   for i = #all_states, 1, -1 do
     local state = all_states[i]
-    -- if not valid_tabs[state.tabid] then
     if not vim.api.nvim_tabpage_is_valid(state.tabid) then
       log.trace(state.name, "disposing of tab:", state.tabid, state.name)
       dispose_state(state)

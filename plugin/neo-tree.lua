@@ -59,9 +59,10 @@ vim.api.nvim_create_autocmd({ "WinEnter" }, {
     -- prune history
     local win_count = #tab_windows
     if win_count > 100 then
+      ---@diagnostic disable-next-line: deprecated
       if table.move then
         utils.prior_windows[tabid] =
-          require("neo-tree.utils._compat").table_move(tab_windows, 80, win_count, 1, {})
+          require("neo-tree.utils._compat").luajit.table_move(tab_windows, 80, win_count, 1, {})
         return
       end
 

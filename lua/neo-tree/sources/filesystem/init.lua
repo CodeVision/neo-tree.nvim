@@ -181,8 +181,12 @@ M._navigate_internal = function(state, path, path_to_reveal, callback, async)
     manager.set_cwd(state)
   end
   local config = require("neo-tree").config
-  if config.enable_git_status and not is_search and config.git_status_async then
-    git.status_async(state.path, state.git_base, config.git_status_async_options)
+  if config.enable_git_status and not is_search then
+    if config.git_status_async_options then
+      git.status_async(state.path, state.git_base, config.git_status_async_options)
+    else
+      git.status(state.git_base, nil, state.path)
+    end
   end
 end
 
@@ -384,20 +388,18 @@ M.setup = function(config, global_config)
         end
       end,
     })
-  elseif global_config.enable_git_status and global_config.git_status_async then
+  elseif global_config.enable_git_status then
+    if not global_config.git_status_async then
+      manager.subscribe(M.name, {
+        event = events.BEFORE_RENDER,
+        handler = function(state)
+          git.status(nil, false, state.path)
+        end,
+      })
+    end
     manager.subscribe(M.name, {
       event = events.GIT_STATUS_CHANGED,
       handler = wrap(manager.git_status_changed),
-    })
-  elseif global_config.enable_git_status then
-    manager.subscribe(M.name, {
-      event = events.BEFORE_RENDER,
-      handler = function(state)
-        local this_state = get_state()
-        if state == this_state then
-          state.git_status_lookup = git.status(state.git_base)
-        end
-      end,
     })
   end
 
@@ -418,7 +420,6 @@ M.setup = function(config, global_config)
       handler = wrap(manager.refresh),
     })
   else
-    require("neo-tree.sources.filesystem.lib.fs_watch").unwatch_all()
     if global_config.enable_refresh_on_write then
       manager.subscribe(M.name, {
         event = events.VIM_BUFFER_CHANGED,

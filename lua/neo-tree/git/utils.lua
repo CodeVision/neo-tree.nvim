@@ -1,66 +1,43 @@
-local Job = require("plenary.job")
-
-local utils = require("neo-tree.utils")
 local log = require("neo-tree.log")
-
+local uv = vim.uv or vim.loop
 local M = {}
 
-M.get_repository_root = function(path, callback)
-  local args = { "rev-parse", "--show-toplevel" }
-  if utils.truthy(path) then
-    args = { "-C", path, "rev-parse", "--show-toplevel" }
-  end
-  if type(callback) == "function" then
-    ---@diagnostic disable-next-line: missing-fields
-    Job:new({
-      command = "git",
-      args = args,
-      enabled_recording = true,
-      on_exit = function(self, code, _)
-        if code ~= 0 then
-          log.trace("GIT ROOT ERROR", self:stderr_result())
-          callback(nil)
-          return
-        end
-        local git_root = self:result()[1]
+---@param git_args string[]
+---@param on_exit fun(code: integer, stdout_chunks: string[], stderr_chunks: string[])
+M.git_job = function(git_args, on_exit)
+  local stdout_chunks = {}
+  local stderr_chunks = {}
 
-        if utils.is_windows then
-          git_root = utils.windowize_path(git_root)
-        end
+  --- uv.spawn blocks for 2x longer than jobstart but jobstart replaces \001 with \n which isn't ideal for path
+  --- correctness (since paths can technically have newlines).
+  ---
+  --- Switch to vim.system in v4.0
+  local stdout = log.assert(uv.new_pipe())
+  local stderr = log.assert(uv.new_pipe())
+  uv.spawn("git", {
+    args = git_args,
+    hide = true,
+    stdio = { nil, stdout, stderr },
+  }, function(code, _)
+    stdout:close()
+    stdout:shutdown()
+    stderr:close()
+    stdout:shutdown()
+    on_exit(code, stdout_chunks, stderr_chunks)
+  end)
 
-        log.trace("GIT ROOT for '", path, "' is '", git_root, "'")
-        callback(git_root)
-      end,
-    }):start()
-  else
-    local ok, git_output = utils.execute_command({ "git", unpack(args) })
-    if not ok then
-      log.trace("GIT ROOT ERROR", git_output)
-      return nil
+  stdout:read_start(function(err, data)
+    log.assert(not err, err)
+    if type(data) == "string" then
+      stdout_chunks[#stdout_chunks + 1] = data
     end
-    local git_root = git_output[1]
-
-    if utils.is_windows then
-      git_root = utils.windowize_path(git_root)
+  end)
+  stdout:read_start(function(err, data)
+    log.assert(not err, err)
+    if type(data) == "string" then
+      stdout_chunks[#stdout_chunks + 1] = data
     end
-
-    log.trace("GIT ROOT for '", path, "' is '", git_root, "'")
-    return git_root
-  end
-end
-
-local convert_octal_char = function(octal)
-  return string.char(tonumber(octal, 8))
-end
-
-M.octal_to_utf8 = function(text)
-  -- git uses octal encoding for utf-8 filepaths, convert octal back to utf-8
-  local success, converted = pcall(string.gsub, text, "\\([0-7][0-7][0-7])", convert_octal_char)
-  if success then
-    return converted
-  else
-    return text
-  end
+  end)
 end
 
 return M

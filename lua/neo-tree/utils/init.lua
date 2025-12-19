@@ -14,6 +14,30 @@ end
 
 local M = {}
 
+---The file system path separator for the current platform.
+M.is_windows = vim.fn.has("win32") == 1 or vim.fn.has("win32unix") == 1
+M.is_macos = vim.fn.has("mac") == 1
+
+---For testing
+---@param windows boolean
+---@return function restorer function that returns the old opts
+M._set_is_windows = function(windows)
+  local old_opts = {
+    is_windows = M.is_windows,
+    path_separator = M.path_separator,
+    path_separator_byte = M.path_separator_byte,
+  }
+  M.is_windows = windows
+  M.path_separator = M.is_windows and "\\" or "/"
+  M.path_separator_byte = M.path_separator:byte(1, 1)
+  return function()
+    for k, v in pairs(old_opts) do
+      M[k] = v
+    end
+  end
+end
+M._set_is_windows(M.is_windows)
+
 local diag_severity_to_string = function(severity)
   if severity == vim.diagnostic.severity.ERROR then
     return "Error"
@@ -28,10 +52,7 @@ local diag_severity_to_string = function(severity)
   end
 end
 
--- Backwards compatibility
-M.pack = table.pack or function(...)
-  return { n = select("#", ...), ... }
-end
+M.pack = compat.luajit.table_pack
 
 local tracked_functions = {}
 ---@enum neotree.utils.DebounceStrategy
@@ -191,6 +212,9 @@ M.tbl_equals = function(table1, table2)
   return true
 end
 
+---@param cmd string|string[]
+---@return boolean success
+---@return string[] output_lines
 M.execute_command = function(cmd)
   local result = vim.fn.systemlist(cmd)
 
@@ -901,12 +925,13 @@ M.normalize_path = function(path)
   return path
 end
 
----Check if a path is a subpath of another.
+---Check if a path is a subpath of (i.e. starts with) `base`.
 ---@param base string The base path.
----@param path string The path to check is a subpath.
----@return boolean path_is_subpath True if it is a subpath, false otherwise.
-M.is_subpath = function(base, path)
-  if not M.truthy(base) or not M.truthy(path) then
+---@param path string The path that might be a subpath.
+---@param fast boolean? Whether to normalize both paths
+---@return boolean path_is_subpath True if `path` is a subpath of `base`.
+M.is_subpath = function(base, path, fast)
+  if #base == 0 or #path == 0 then
     return false
   end
 
@@ -914,19 +939,27 @@ M.is_subpath = function(base, path)
     return true
   end
 
-  base = M.normalize_path(base)
-  path = M.normalize_path(path)
-  if path:sub(1, #base) == base then
-    local base_parts = M.split(base, M.path_separator)
-    local path_parts = M.split(path, M.path_separator)
-    for i, base_part in ipairs(base_parts) do
-      if path_parts[i] ~= base_part then
-        return false
-      end
+  if not fast then
+    base = M.normalize_path(base)
+    path = M.normalize_path(path)
+    if base == path then
+      return true
     end
-    return true
   end
-  return false
+
+  if #path < #base or path:find(base, 1, true) ~= 1 then
+    return false
+  end
+
+  -- edge case: if base is only a root path, check whether the other path's prefix is the same
+  local base_prefix = M.abspath_prefix(base)
+  if base_prefix and #base_prefix >= #base then
+    local path_prefix = M.abspath_prefix(path)
+    return base_prefix == path_prefix
+  end
+
+  -- normal happy path
+  return path:byte(#base + 1, #base + 1) == M.path_separator_byte
 end
 
 ---Checks whether the parent file has the child path as a true descendant (i.e. not through a link).
@@ -1004,24 +1037,28 @@ M.fs_parent = function(path, loose)
   return (M.split_path(realpath))
 end
 
----Finds all paths that are parents of the current path, naively by removing the tail segments
+---Iterates through all paths that are parents of the current path, naively by removing the tail segments
 ---@param path string
----@return fun():string?,string?
+---@return fun():string?
 M.path_parents = function(path)
-  path = M.normalize_path(path)
-  ---@type string?
-  local parent = path
-  local tail
+  -- tends to be about 4x faster than looping through split_path results
+  local i = #path
+  local sep_byte = M.path_separator_byte
+  local prefix = M.abspath_prefix(path) or ""
   return function()
-    parent, tail = M.split_path(parent)
-    return parent, tail
+    while i >= #prefix do
+      i = i - 1
+      if path:byte(i, i) == sep_byte then
+        -- either return the prefix, or the stuff to the left of the last path separator
+        if i == #prefix then
+          return prefix
+        end
+        local parent = path:sub(1, i - 1)
+        return parent
+      end
+    end
   end
 end
-
----The file system path separator for the current platform.
-M.is_windows = vim.fn.has("win32") == 1 or vim.fn.has("win32unix") == 1
-M.is_macos = vim.fn.has("mac") == 1
-M.path_separator = M.is_windows and "\\" or "/"
 
 ---Remove the path separator from the end of a path in a cross-platform way.
 ---@param path string The path to remove the separator from.
@@ -1119,6 +1156,13 @@ M.split = function(inputString, sep)
   return fields
 end
 
+---@param s string
+---@param sep string
+M.gsplit_plain = function(s, sep)
+  ---@diagnostic disable-next-line: param-type-mismatch
+  return vim.gsplit(s, sep, compat.gsplit_plain_arg)
+end
+
 ---Split a path into a parent path and a name.
 ---This differs from python's os.path.split in that root paths (like C:\ or /) return (nil, root_path_normalized)
 ---@param path string? The path to split.
@@ -1135,21 +1179,30 @@ M.split_path = function(path)
   if prefix and vim.startswith(prefix, path) then
     return nil, path
   end
-  if path:sub(-1) == M.path_separator then
-    -- trim it off
+
+  -- this is more than just a root path
+  local sep_byte = M.path_separator_byte
+  if path:byte(-1, -1) == sep_byte then
+    -- normalizing, trim it off
     path = path:sub(1, -2)
   end
 
-  local rest_of_path = prefix and path:sub(#prefix + 1) or path
-  local rest_parts = vim.split(rest_of_path, M.path_separator, { plain = true })
-  local name = table.remove(rest_parts)
-  local parentPath = (prefix or "") .. table.concat(rest_parts, M.path_separator)
-
-  if #parentPath == 0 then
-    return prefix, name
+  local last_separator_index
+  for idx = #path, prefix and #prefix + 1 or 1, -1 do
+    if path:byte(idx, idx) == sep_byte then
+      last_separator_index = idx
+      break
+    end
   end
 
-  return parentPath, name
+  if not last_separator_index then
+    local rest = prefix and path:sub(#prefix + 1) or path
+    return prefix, rest
+  end
+
+  local parent_path = path:sub(1, last_separator_index - 1)
+  local tail = path:sub(last_separator_index + 1)
+  return parent_path, tail
 end
 
 ---Joins arbitrary number of paths together.
@@ -1180,6 +1233,8 @@ M.path_join = function(...)
   return root .. relpath
 end
 
+local forward_slash_byte = ("/"):byte(1, 1)
+local backslash_byte = ("\\"):byte(1, 1)
 ---@param path string Any path.
 ---@return string? prefix Nil if the path isn't absolute. Will always return it with the correct path separator appended.
 M.abspath_prefix = function(path)
@@ -1188,17 +1243,25 @@ M.abspath_prefix = function(path)
     if only_drive_letter_match then
       return only_drive_letter_match .. "\\"
     end
-    local match = path:match("^[A-Za-z]:[/\\]")
-      or path:match([[^\\]])
-      or path:match([[^\]])
-      or path:match([[^//]])
-      or path:match([[^/]])
-    if match then
-      return M.windowize_path(match)
+
+    local drive_letter_match = path:match("^[A-Za-z]:[/\\]")
+    if drive_letter_match then
+      return drive_letter_match
     end
+
+    local start_byte = path:byte(1, 1)
+    if start_byte ~= forward_slash_byte and start_byte ~= backslash_byte then
+      return nil
+    end
+    return path:match([[^\\[%.%?]\]])
+      or path:match("^//[%.%?]/")
+      or path:match([[^\\]])
+      or path:match([[^//]])
+      or path:match([[^\]])
+      or path:match([[^/]])
   end
 
-  return path:match("^/")
+  return path:sub(1, 1) == "/" and "/" or nil
 end
 
 local table_merge_internal
@@ -1588,7 +1651,7 @@ local slice = vim.fn.exists("*slice") == 1 and vim.fn.slice
 
 -- Function below provided by @akinsho, modified by @pynappo
 -- https://github.com/nvim-neo-tree/neo-tree.nvim/pull/427#discussion_r924947766
--- TODO: maybe use vim.stf_utf* functions instead of strchars, once neovim updates enough
+-- TODO: maybe use vim.str_utf* functions instead of strchars, once neovim updates enough
 
 -- Truncate a string based on number of display columns/cells it occupies
 -- so that multibyte characters are not broken up mid-character
