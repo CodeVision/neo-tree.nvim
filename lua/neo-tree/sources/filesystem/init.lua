@@ -183,9 +183,9 @@ M._navigate_internal = function(state, path, path_to_reveal, callback, async)
   local config = require("neo-tree").config
   if config.enable_git_status and not is_search then
     if config.git_status_async_options then
-      git.status_async(state.path, state.git_base, config.git_status_async_options)
+      git.status_async(state.path, state.git_base_by_worktree, config.git_status_async_options)
     else
-      git.status(state.git_base, nil, state.path)
+      git.status(state.path, state.git_base_by_worktree, false)
     end
   end
 end
@@ -376,6 +376,8 @@ M.setup = function(config, global_config)
     end
   end
 
+  local git_status_async_enabled = global_config.enable_git_status
+    and global_config.git_status_async
   --Configure events for before_render
   if config.before_render then
     --convert to new event system
@@ -388,18 +390,13 @@ M.setup = function(config, global_config)
         end
       end,
     })
-  elseif global_config.enable_git_status then
-    if not global_config.git_status_async then
-      manager.subscribe(M.name, {
-        event = events.BEFORE_RENDER,
-        handler = function(state)
-          git.status(nil, false, state.path)
-        end,
-      })
-    end
+  elseif global_config.enable_git_status and not global_config.git_status_async then
     manager.subscribe(M.name, {
-      event = events.GIT_STATUS_CHANGED,
-      handler = wrap(manager.git_status_changed),
+      event = events.BEFORE_RENDER,
+      ---@param state neotree.State
+      handler = function(state)
+        git.status(state.path, state.git_base_by_worktree, false)
+      end,
     })
   end
 
@@ -407,9 +404,11 @@ M.setup = function(config, global_config)
   if global_config.enable_git_status then
     manager.subscribe(M.name, {
       event = events.GIT_EVENT,
-      handler = function()
-        manager.refresh(M.name)
-      end,
+      handler = wrap(manager.refresh),
+    })
+    manager.subscribe(M.name, {
+      event = events.GIT_STATUS_CHANGED,
+      handler = wrap(manager.git_status_changed),
     })
   end
 
@@ -417,7 +416,14 @@ M.setup = function(config, global_config)
   if config.use_libuv_file_watcher then
     manager.subscribe(M.name, {
       event = events.FS_EVENT,
-      handler = wrap(manager.refresh),
+      handler = function(details)
+        manager.refresh(M.name)
+        if git_status_async_enabled then
+          if details and details.afile and git.find_existing_worktree(details.afile) then
+            git.status_async(details.afile, nil, global_config.git_status_async_options)
+          end
+        end
+      end,
     })
   else
     if global_config.enable_refresh_on_write then

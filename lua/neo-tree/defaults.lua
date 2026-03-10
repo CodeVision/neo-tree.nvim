@@ -291,6 +291,7 @@ local config = {
     },
     symlink_target = {
       enabled = false,
+      target_display = "auto", -- "auto", "force_relative", or "force_absolute"
       text_format = " ➛ %s", -- %s will be replaced with the symlink target's path.
     },
   },
@@ -673,6 +674,7 @@ local config = {
   },
   document_symbols = {
     follow_cursor = false,
+    follow_tree_cursor = false, -- Automatically show symbol location when moving cursor in the tree
     client_filters = "first",
     renderers = {
       root = {

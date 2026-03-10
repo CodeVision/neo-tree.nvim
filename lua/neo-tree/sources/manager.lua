@@ -60,7 +60,7 @@ end
 ---@field bufnr integer?
 ---@field dirty boolean
 ---@field position neotree.State.Position
----@field git_base string
+---@field git_base_by_worktree table<string,string?>?
 ---@field sort table
 ---@field clipboard neotree.clipboard.Contents
 ---@field current_position neotree.State.CurrentPosition?
@@ -115,8 +115,6 @@ end
 ---@field tree NuiTree
 ---@field _in_pre_render boolean?
 
-local a = {}
-
 ---@param tabid integer
 ---@param sd table
 ---@param winid integer?
@@ -130,7 +128,6 @@ local function create_state(tabid, sd, winid)
   state.id = winid or tabid
   state.dirty = true
   state.position = {}
-  state.git_base = "HEAD"
   state.sort = { label = "Name", direction = 1 }
   state.clipboard = {}
   events.fire_event(events.STATE_CREATED, state)
@@ -421,8 +418,8 @@ M.git_status_changed = function(source_name, args)
   end
   -- M.refresh(source_name)
   M._for_each_state(source_name, function(state)
-    local root_is_visible = state.tree and state.tree.nodes.by_id[args.git_root] ~= nil
     local state_in_git_root = utils.is_subpath(args.git_root, state.path)
+    local root_is_visible = state.tree and state.tree.nodes.by_id[args.git_root] ~= nil
     if state_in_git_root or root_is_visible then
       renderer.redraw(state)
     end

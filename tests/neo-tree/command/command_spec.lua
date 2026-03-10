@@ -7,7 +7,7 @@ local run_focus_command = function(command, expected_tree_node)
   local winid = vim.api.nvim_get_current_win()
 
   vim.cmd(command)
-  u.wait_for_neo_tree({ interval = 10, timeout = 200 })
+  u.wait_for_neo_tree({ interval = 100, timeout = 500 })
   verify.window_handle_is_not(winid)
   verify.buf_name_endswith("neo-tree filesystem [1]")
   if expected_tree_node then
@@ -21,7 +21,7 @@ local run_show_command = function(command, expected_tree_node)
   local expected_num_windows = #vim.api.nvim_list_wins() + 1
 
   vim.cmd(command)
-  verify.eventually(500, function()
+  verify.eventually(function()
     if #vim.api.nvim_list_wins() ~= expected_num_windows then
       return false
     end
@@ -41,8 +41,16 @@ end
 local run_close_command = function(command)
   vim.cmd(command)
   u.wait_for(function()
-    return false
-  end, { interval = 200, timeout = 200 })
+    local wins = vim.api.nvim_tabpage_list_wins(0)
+    local neotree_open = false
+    for i, winid in ipairs(wins) do
+      local buf = vim.api.nvim_win_get_buf(winid)
+      if vim.bo[buf].filetype == "neo-tree" then
+        neotree_open = true
+      end
+    end
+    return not neotree_open
+  end, { interval = 100, timeout = 500, timeout_message = "Neo-tree didn't close" })
 end
 
 describe("Command", function()

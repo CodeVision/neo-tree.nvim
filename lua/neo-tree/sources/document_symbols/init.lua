@@ -66,11 +66,7 @@ M.navigate = function(state, path, path_to_reveal, callback, async)
   state.lsp_bufnr = vim.api.nvim_win_get_buf(state.lsp_winid)
   state.path = vim.api.nvim_buf_get_name(state.lsp_bufnr)
 
-  symbols.render_symbols(state)
-
-  if type(callback) == "function" then
-    vim.schedule(callback)
-  end
+  symbols.render_symbols(state, callback)
 end
 
 ---@class neotree.Config.LspKindDisplay
@@ -83,6 +79,7 @@ end
 
 ---@class (exact) neotree.Config.DocumentSymbols : neotree.Config.Source
 ---@field follow_cursor boolean?
+---@field follow_tree_cursor boolean?
 ---@field client_filters neotree.lsp.ClientFilter?
 ---@field custom_kinds table<integer, string>?
 ---@field kinds table<string, neotree.Config.LspKindDisplay>?
@@ -122,6 +119,41 @@ M.setup = function(config, global_config)
     manager.subscribe(M.name, {
       event = events.VIM_CURSOR_MOVED,
       handler = follow_debounced,
+    })
+  end
+
+  -- Set up follow_tree_cursor: show symbol on cursor move in document_symbols buffer
+  if config.follow_tree_cursor then
+    manager.subscribe(M.name, {
+      event = events.NEO_TREE_BUFFER_ENTER,
+      handler = function()
+        local bufnr = vim.api.nvim_get_current_buf()
+        -- Only set up for document_symbols source
+        local state = manager.get_state("document_symbols")
+        if not state or state.bufnr ~= bufnr then
+          return
+        end
+        local group = vim.api.nvim_create_augroup(
+          "neo_tree_document_symbols_follow_tree_cursor",
+          { clear = true }
+        )
+        vim.api.nvim_create_autocmd("CursorMoved", {
+          group = group,
+          buffer = bufnr,
+          callback = function()
+            local current_state = manager.get_state("document_symbols")
+            if not current_state or not current_state.tree then
+              return
+            end
+            -- Verify we're still in the right buffer
+            if vim.api.nvim_get_current_buf() ~= current_state.bufnr then
+              return
+            end
+            local commands = require("neo-tree.sources.document_symbols.commands")
+            commands.show_symbol(current_state)
+          end,
+        })
+      end,
     })
   end
 end

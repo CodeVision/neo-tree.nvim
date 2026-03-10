@@ -175,10 +175,19 @@ function mod.assert_highlight(bufnr, ns_id, linenr, text, hl_group)
 end
 
 ---@param callback fun():boolean
----@param options? { interval?: integer, timeout?: integer }
+---@param options? { interval?: integer, timeout?: integer, timeout_message?: string }
 function mod.wait_for(callback, options)
   options = options or {}
-  vim.wait(options.timeout or 1000, callback, options.interval or 100)
+  local timeout = options.timeout or 10000
+  local cb_true, errnum = vim.wait(timeout, callback, options.interval or 100)
+  if not cb_true then
+    if errnum == -1 then
+      local timeout_message = options.timeout_message or "vim.wait timed out"
+      error(timeout_message .. " after " .. timeout .. " ms")
+    else
+      error("vim.wait interrupted")
+    end
+  end
 end
 
 ---@param options? { interval?: integer, timeout?: integer }
@@ -215,6 +224,7 @@ function mod.buflines(bufnr)
   return vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 end
 
+---@nodiscard
 function mod.os_to_windows(is_windows)
   local utils = require("neo-tree.utils")
   return utils._set_is_windows(is_windows)
