@@ -3,6 +3,7 @@
 local cc = require("neo-tree.sources.common.commands")
 local utils = require("neo-tree.utils")
 local manager = require("neo-tree.sources.manager")
+local git_status = require("neo-tree.sources.git_status")
 
 ---@class neotree.sources.GitStatus.Commands : neotree.sources.Common.Commands
 local M = {}
@@ -46,7 +47,13 @@ M.copy = function(state)
 end
 
 M.move = function(state)
-  cc.move(state, redraw)
+  local function navigate(_, destination)
+    -- redraw()
+    vim.schedule(function()
+      git_status.navigate(state, "", destination)
+    end)
+  end
+  cc.move(state, navigate)
 end
 
 ---Pastes all items from the clipboard to the current directory.
@@ -72,6 +79,10 @@ M.refresh = refresh
 
 M.rename = function(state)
   cc.rename(state, refresh)
+end
+
+M.rename_basename = function(state)
+  cc.rename_basename(state, refresh)
 end
 
 cc._add_common_commands(M)
